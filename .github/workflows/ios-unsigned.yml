@@ -81,7 +81,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout --orphan builds
           git rm -rf -q .
-          cp "$IPA" ./SmartShift-unsigned.ipa
+          test -f "$IPA" || (echo "IPA not found at $IPA" && exit 1)
           git add SmartShift-unsigned.ipa
           git commit -q -m "iOS build #$GITHUB_RUN_NUMBER"
           git push -f origin builds
