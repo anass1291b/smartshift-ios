@@ -1,5 +1,15 @@
 name: Build iOS IPA (unsigned, for sideloading)
 
+# Builds a real native iPhone app package (.ipa) on GitHub's free macOS runner.
+# The app source comes from smartshift-source.zip committed at the repo root.
+# The IPA is UNSIGNED on purpose: SideStore/AltStore signs it on-device with
+# the user's free Apple ID at install time (no paid Apple Developer account).
+# The finished IPA is pushed to the `builds` branch for download.
+#
+# NOTE: Capacitor 8 scaffolds the iOS project with Swift Package Manager
+# (no Podfile, no .xcworkspace), so there is intentionally no `pod install`
+# step and xcodebuild uses -project instead of -workspace.
+
 on:
   workflow_dispatch:
   push:
@@ -33,18 +43,20 @@ jobs:
         run: cd src && bun run build
 
       - name: Scaffold native iOS project
-        run: cd src && bunx cap add ios
+        run: |
+          cd src && bunx cap add ios
+          test -d ios/App/App.xcodeproj || (echo "iOS scaffold failed: App.xcodeproj missing" && exit 1)
 
       - name: Sync web assets into iOS project
         run: cd src && bunx cap sync ios
 
-      - name: Install CocoaPods dependencies
-        run: cd src/ios/App && pod install
+      - name: Resolve Swift packages
+        run: cd src/ios/App && xcodebuild -project App.xcodeproj -scheme App -resolvePackageDependencies
 
       - name: Build unsigned archive
         run: |
           cd src/ios/App
-          xcodebuild -workspace App.xcworkspace \
+          xcodebuild -project App.xcodeproj \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
