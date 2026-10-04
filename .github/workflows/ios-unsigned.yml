@@ -1,0 +1,75 @@
+name: Build iOS IPA (unsigned, for sideloading)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unpack app source
+        run: |
+          test -f smartshift-source.zip || (echo "smartshift-source.zip missing" && exit 1)
+          mkdir -p src && unzip -q smartshift-source.zip -d src
+          ls src | head
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: cd src && bun install
+
+      - name: Build web app
+        run: cd src && bun run build
+
+      - name: Scaffold native iOS project
+        run: cd src && bunx cap add ios
+
+      - name: Sync web assets into iOS project
+        run: cd src && bunx cap sync ios
+
+      - name: Install CocoaPods dependencies
+        run: cd src/ios/App && pod install
+
+      - name: Build unsigned archive
+        run: |
+          cd src/ios/App
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$PWD/build/App.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: Package unsigned IPA
+        run: |
+          APP_DIR="src/ios/App/build/App.xcarchive/Products/Applications"
+          mkdir -p "$APP_DIR/Payload"
+          cp -R "$APP_DIR/App.app" "$APP_DIR/Payload/"
+          cd "$APP_DIR"
+          zip -qr "$GITHUB_WORKSPACE/SmartShift-unsigned.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/SmartShift-unsigned.ipa"
+
+      - name: Publish IPA to builds branch
+        run: |
+          IPA="$GITHUB_WORKSPACE/SmartShift-unsigned.ipa"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan builds
+          git rm -rf -q .
+          cp "$IPA" ./SmartShift-unsigned.ipa
+          git add SmartShift-unsigned.ipa
+          git commit -q -m "iOS build #$GITHUB_RUN_NUMBER"
+          git push -f origin builds
